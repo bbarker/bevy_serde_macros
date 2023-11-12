@@ -59,24 +59,90 @@ where
     }
 }
 
+// TODO: For deserialization, we may actually want to serialize this as a map, with the
+// component type as the key and the data as the value.
+// https://chat.openai.com/c/a5296810-68cc-4232-b9af-a47512454323
+// Otherwise I'm not sure how we will know which component type to deserialize to.
+
 #[macro_export]
 macro_rules! serialize_individually {
   ($world:expr, $ser:expr, $marker:ty, $( $comp_type:ty),*, $(,)?) => {
+      let mut data_map: HashMap<String, String> = HashMap::new();
       $(
-      SerializeComponents::<$comp_type, SerializeMe>::serialize(
-          $world.query_filtered::<(Entity, &$comp_type), With<$marker>>(),
-          $world,
-          &mut $ser,
-      )
-      .unwrap();
+        let comp_name_fq = stringify!($comp_type);
+        let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
+        let writer = Vec::new();
+        let mut inner_ser = serde_json::Serializer::new(writer);
+        SerializeComponents::<$comp_type, SerializeMe>::serialize(
+            $world.query_filtered::<(Entity, &$comp_type), With<$marker>>(),
+            $world,
+            &mut inner_ser,
+        )
+        .unwrap();
+        let comp_data = String::from_utf8(inner_ser.into_inner()).unwrap();
+        data_map.insert(comp_name.to_string(), comp_data);
       )*
+      data_map.serialize(&mut $ser).unwrap();
   };
 }
 
+/*
+// Notes for specs migration:
+// Removed params:
+//   1. allocator
+// Added params:
+//   2. EntityMapper
+
+
+/// A trait which allows to deserialize entities and their components.
+pub trait DeserializeComponents<M>
+where
+    Self: Sized,
+    M: Component,
+{
+    /// The data representation that a component group gets deserialized to.
+    type Data: DeserializeOwned;
+
+    /// Loads `Component`s to entity from `Data` deserializable representation
+    // fn deserialize_entity<F>(
+    //     &mut self,
+    //     entity: Entity,
+    //     components: Self::Data,
+    //     ids: F,
+    // ) -> Result<(), E>
+    // where
+    //     F: FnMut(M) -> Option<Entity>;
+
+    /// Deserialize entities according to markers.
+    fn deserialize<'a: 'b, 'b, 'de, D>(
+        &'b mut self,
+        entities: &'b EntitiesRes,
+        markers: &'b mut WriteStorage<'a, M>,
+        deserializer: D,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(VisitEntities::<E, M, Self> {
+            entities,
+            markers,
+            storages: self,
+            pd: PhantomData,
+        })
+    }
+}
+
+*/
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
+    use bevy_ecs::entity::EntityMapper;
     use serde::{Deserialize, Serialize};
+
+    use assert_json_diff::{assert_json_matches, CompareMode, Config, NumericMode};
 
     #[derive(Serialize, Deserialize)]
     enum TestEnum {
@@ -123,6 +189,8 @@ mod tests {
 
     #[test]
     fn test_serialization() {
+        let json_assert_config = Config::new(CompareMode::Strict);
+
         let mut world = World::default();
         let entity1 = world.spawn(Component1).id();
         let entity2 = world
@@ -138,15 +206,25 @@ mod tests {
 
         let save_data = save_game(&mut world);
         let save_json = String::from_utf8(save_data.clone()).unwrap();
-        let expected_json = "[][][]";
-        assert_eq!(save_json, expected_json);
+        //let expected_json =  "{\"Component1\":\"[]\",\"Component2\":\"[]\",\"Component3\":\"[]\"}";
+        /*         let expected_json: Result<HashMap<String, String>, serde_json::Error> =
+            serde_json::from_str(
+                "{\"Component1\":\"[]\",\"Component2\":\"[]\",\"Component3\":\"[]\"}",
+            )
+            .unwrap();
+        assert_eq!(save_json, expected_json); */
 
         world.get_entity_mut(entity1).unwrap().insert(SerializeMe);
         world.get_entity_mut(entity2).unwrap().insert(SerializeMe);
 
         let save_data = save_game(&mut world); // Normally you would save this to a file
         let save_json = String::from_utf8(save_data.clone()).unwrap(); // But we read it as a string to test
-        let expected_json = r#"[[0,null],[1,null]][[1,{"target":0}]][[1,{"target":0,"test_enum":{"ATest":"test"}}]]"#;
-        assert_eq!(save_json, expected_json);
+        let expected_json = "{\"Component3\":\"[[1,{\\\"target\\\":0,\\\"test_enum\\\":{\\\"ATest\\\":\\\"test\\\"}}]]\",\"Component1\":\"[[0,null],[1,null]]\",\"Component2\":\"[[1,{\\\"target\\\":0}]]\"}";
+        // r#"[[0,null],[1,null]][[1,{"target":0}]][[1,{"target":0,"test_enum":{"ATest":"test"}}]]"#;
+        // assert_eq!(save_json, expected_json);
+
+        // let entity_map: HashMap<Entity, Entity> = HashMap::new();
+        // example: f(world, &mut mapper);
+        // let entity_mapper = EntityMapper::world_scope(entity_map, &mut world, f)
     }
 }

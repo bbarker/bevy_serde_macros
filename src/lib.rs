@@ -3,7 +3,8 @@
 // (Copyright (c) 2017 The Specs Project Developers)
 
 use bevy_ecs::prelude::*;
-use serde::ser::{Serialize, SerializeSeq, Serializer};
+use serde::ser::Serialize;
+use serde_json::Value;
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
 /// of the same name from the specs ECS library.
@@ -15,8 +16,8 @@ where
     /// A trait for serializing components of entities in a `World`.
     ///
     /// This trait allows serializing components of a specified component type (`C`) for all entities that
-    /// also have a specified marker component (`M`). The serialization is performed using the
-    /// provided serializer.
+    /// also have a specified marker component (`M`). The serialization is performed and the result is
+    /// returned as a `serde_json::Value`.
     ///
     /// # Notes
     /// - The `serialize_individually!` macro will call this function for each component type of interest.
@@ -33,11 +34,11 @@ where
     /// # Parameters
     /// - `self`: The instance of the trait.
     /// - `world`: A reference to the `World` containing the entities and components.
-    /// - `serializer`: The serializer to use for serializing the components.
     ///
     /// # Returns
-    /// A result containing either `S::Ok` or an error (`S::Error`).
-    fn serialize<S: Serializer>(self, world: &World, serializer: S) -> Result<S::Ok, S::Error>;
+    /// A result containing either a `serde_json::Value` representing the serialized data or an error
+    /// (`serde_json::Error`).
+    fn serialize(self, world: &World) -> Result<Value, serde_json::Error>;
 }
 
 impl<C, M> SerializeComponents<C, M> for QueryState<(Entity, &C), With<M>>
@@ -45,17 +46,10 @@ where
     M: Component,
     C: Component + Serialize,
 {
-    fn serialize<S: Serializer>(mut self, world: &World, serializer: S) -> Result<S::Ok, S::Error> {
-        let count = self.iter(world).count();
-        match serializer.serialize_seq(Some(count)) {
-            Ok(mut serseq) => {
-                self.iter(world).for_each(|ent_comp| {
-                    serseq.serialize_element(&ent_comp).unwrap();
-                });
-                serseq.end()
-            }
-            Err(er) => Err(er),
-        }
+    fn serialize(mut self, world: &World) -> Result<Value, serde_json::Error> {
+        let comp_values_res: Result<Vec<Value>, serde_json::Error> =
+            self.iter(world).map(serde_json::value::to_value).collect();
+        comp_values_res.map(Value::Array)
     }
 }
 
@@ -67,20 +61,15 @@ where
 #[macro_export]
 macro_rules! serialize_individually {
   ($world:expr, $ser:expr, $marker:ty, $( $comp_type:ty),*, $(,)?) => {
-      let mut data_map: HashMap<String, String> = HashMap::new();
+      let mut data_map: HashMap<String, Value> = HashMap::new();
       $(
         let comp_name_fq = stringify!($comp_type);
         let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
-        let writer = Vec::new();
-        let mut inner_ser = serde_json::Serializer::new(writer);
-        SerializeComponents::<$comp_type, SerializeMe>::serialize(
+        let comp_data_res = SerializeComponents::<$comp_type, SerializeMe>::serialize(
             $world.query_filtered::<(Entity, &$comp_type), With<$marker>>(),
             $world,
-            &mut inner_ser,
-        )
-        .unwrap();
-        let comp_data = String::from_utf8(inner_ser.into_inner()).unwrap();
-        data_map.insert(comp_name.to_string(), comp_data);
+        );
+        data_map.insert(comp_name.to_string(), comp_data_res.unwrap());
       )*
       data_map.serialize(&mut $ser).unwrap();
   };
@@ -205,23 +194,21 @@ mod tests {
             .id();
 
         let save_data = save_game(&mut world);
-        let save_json = String::from_utf8(save_data.clone()).unwrap();
-        //let expected_json =  "{\"Component1\":\"[]\",\"Component2\":\"[]\",\"Component3\":\"[]\"}";
-        /*         let expected_json: Result<HashMap<String, String>, serde_json::Error> =
-            serde_json::from_str(
-                "{\"Component1\":\"[]\",\"Component2\":\"[]\",\"Component3\":\"[]\"}",
-            )
-            .unwrap();
-        assert_eq!(save_json, expected_json); */
+        let save_json: HashMap<String, Value> = serde_json::from_slice(&save_data).unwrap();
+        let expected_json: HashMap<String, Value> =
+            serde_json::from_str(r#"{"Component3": [], "Component2": [], "Component1": []}"#)
+                .unwrap();
+        assert_eq!(save_json, expected_json);
 
         world.get_entity_mut(entity1).unwrap().insert(SerializeMe);
         world.get_entity_mut(entity2).unwrap().insert(SerializeMe);
 
         let save_data = save_game(&mut world); // Normally you would save this to a file
-        let save_json = String::from_utf8(save_data.clone()).unwrap(); // But we read it as a string to test
-        let expected_json = "{\"Component3\":\"[[1,{\\\"target\\\":0,\\\"test_enum\\\":{\\\"ATest\\\":\\\"test\\\"}}]]\",\"Component1\":\"[[0,null],[1,null]]\",\"Component2\":\"[[1,{\\\"target\\\":0}]]\"}";
-        // r#"[[0,null],[1,null]][[1,{"target":0}]][[1,{"target":0,"test_enum":{"ATest":"test"}}]]"#;
-        // assert_eq!(save_json, expected_json);
+        let save_json: HashMap<String, Value> = serde_json::from_slice(&save_data).unwrap();
+        let expected_json: HashMap<String, Value> = serde_json::from_str(
+            r#"{"Component3": [[1, {"target": 0, "test_enum": {"ATest": "test"}}]], "Component2": [[1, {"target": 0}]], "Component1": [[0, null], [1, null]]}"#,
+        ).unwrap();
+        assert_eq!(save_json, expected_json);
 
         // let entity_map: HashMap<Entity, Entity> = HashMap::new();
         // example: f(world, &mut mapper);

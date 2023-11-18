@@ -2,9 +2,15 @@
 // Copyright 2019 Herbert Wolverson (DBA Bracket Productions)
 // (Copyright (c) 2017 The Specs Project Developers)
 
+use bevy_ecs::entity::EntityMapper;
 use bevy_ecs::prelude::*;
+use bevy_utils::hashbrown::HashMap;
+use serde::de::{Deserialize, DeserializeOwned};
 use serde::ser::Serialize;
 use serde_json::Value;
+use std::error::Error;
+
+const EMPTY_JS_ARRAY: Value = serde_json::json!([]);
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
 /// of the same name from the specs ECS library.
@@ -53,11 +59,6 @@ where
     }
 }
 
-// TODO: For deserialization, we may actually want to serialize this as a map, with the
-// component type as the key and the data as the value.
-// https://chat.openai.com/c/a5296810-68cc-4232-b9af-a47512454323
-// Otherwise I'm not sure how we will know which component type to deserialize to.
-
 #[macro_export]
 macro_rules! serialize_individually {
   ($world:expr, $ser:expr, $marker:ty, $( $comp_type:ty),*, $(,)?) => {
@@ -75,60 +76,75 @@ macro_rules! serialize_individually {
   };
 }
 
-/*
-// Notes for specs migration:
-// Removed params:
-//   1. allocator
-// Added params:
-//   2. EntityMapper
-
-
-/// A trait which allows to deserialize entities and their components.
-pub trait DeserializeComponents<M>
-where
-    Self: Sized,
-    M: Component,
-{
-    /// The data representation that a component group gets deserialized to.
-    type Data: DeserializeOwned;
-
-    /// Loads `Component`s to entity from `Data` deserializable representation
-    // fn deserialize_entity<F>(
-    //     &mut self,
-    //     entity: Entity,
-    //     components: Self::Data,
-    //     ids: F,
-    // ) -> Result<(), E>
-    // where
-    //     F: FnMut(M) -> Option<Entity>;
-
-    /// Deserialize entities according to markers.
-    fn deserialize<'a: 'b, 'b, 'de, D>(
-        &'b mut self,
-        entities: &'b EntitiesRes,
-        markers: &'b mut WriteStorage<'a, M>,
-        deserializer: D,
-    ) -> Result<(), D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(VisitEntities::<E, M, Self> {
-            entities,
-            markers,
-            storages: self,
-            pd: PhantomData,
-        })
-    }
+fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>>(
+    entity_comps: Vec<(Entity, C)>,
+) -> Box<dyn FnOnce(&mut World, &mut EntityMapper)> {
+    Box::new(|world: &mut World, mapper: &mut EntityMapper| {
+        entity_comps.into_iter().for_each(|(entity, comp)| {
+            let new_entity = mapper.get_or_reserve(entity);
+            world.entity_mut(new_entity).insert(comp);
+        });
+    })
 }
 
-*/
+// Notes for specs migration:
+//
+// Fn passed to `worldScope` takes a `&mut World` and `&mut EntityMapper`
+// but `deserialize` also likely needs a deserializer, so I think we need to call
+// world_scope inside of deserialize as part of a closure containing the deserializer.
+// We need the hashmap to persist between calls to deserialize.
+//
+//
+// Removed params:
+//   1. allocator
+//   2. entities (EntitiesRes)
+//   3. markers
+//   4. deserializer: D,
+// Added params:
+//   1. World
+//   2. HashMap<Entity, Entity>
+//   3. HashMap<String, Value>
+// TODO: extract this data map and pass it in as a parameter to avoid
+// deserializing it multiple times; we can have a caller: `deserialize_all`;
+// likely need to just have it as a trait fn since to implement, need to use
+// execute_with_type_list!
+// TODO: deserialize outer map:
+//      let save_data_string = String::from_utf8(self).unwrap();
+//   4. String value of component name (corresponding to `C`)
+/// A trait which allows to deserialize entities and their components.
+pub trait DeserializeComponents<C, M>
+where
+    Self: Sized, // TODO: what do we want to use as Self, if anything?
+    M: Component,
+    C: Component + DeserializeOwned,
+{
+    fn deserialize(
+        world: &mut World,
+        entity_map: &mut HashMap<Entity, Entity>,
+        component_json_obj: &mut HashMap<String, Value>,
+        component_name: String,
+    ) -> Result<(), Box<dyn Error>> // TODO: consider removing Box after tests work
+    {
+        // to avoid memory duplication, we remove the component vec from the map,
+        // allowing the deserializer to take ownership
+        let comp_vec_value = component_json_obj
+            .remove(&component_name)
+            .unwrap_or(EMPTY_JS_ARRAY);
+        component_json_obj.shrink_to_fit();
+
+        let entity_comps: Vec<(Entity, C)> = serde_json::from_value(comp_vec_value)?;
+
+        Ok(EntityMapper::world_scope(entity_map, world, |world, em| {
+            revive_or_rejuv_entity(entity_comps)(world, em)
+        }))
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use bevy_ecs::entity::EntityMapper;
     use serde::{Deserialize, Serialize};
 
     use assert_json_diff::{assert_json_matches, CompareMode, Config, NumericMode};
@@ -179,7 +195,6 @@ mod tests {
     #[test]
     fn test_serialization() {
         let json_assert_config = Config::new(CompareMode::Strict);
-
         let mut world = World::default();
         let entity1 = world.spawn(Component1).id();
         let entity2 = world
@@ -210,8 +225,8 @@ mod tests {
         ).unwrap();
         assert_eq!(save_json, expected_json);
 
-        // let entity_map: HashMap<Entity, Entity> = HashMap::new();
+        let entity_map: HashMap<Entity, Entity> = HashMap::new();
         // example: f(world, &mut mapper);
-        // let entity_mapper = EntityMapper::world_scope(entity_map, &mut world, f)
+        // let entity_mapper = EntityMapper::world_scope(&mut entity_map, &mut world, f)
     }
 }

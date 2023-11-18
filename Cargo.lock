@@ -163,6 +163,7 @@ version = "0.1.0"
 dependencies = [
  "assert-json-diff",
  "bevy_ecs",
+ "bevy_utils",
  "serde",
  "serde_json",
 ]

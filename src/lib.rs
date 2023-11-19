@@ -76,13 +76,14 @@ macro_rules! serialize_individually {
   };
 }
 
-fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>>(
+fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>, M: Component + Clone>(
     entity_comps: Vec<(Entity, C)>,
+    marker: M,
 ) -> Box<dyn FnOnce(&mut World, &mut EntityMapper)> {
-    Box::new(|world: &mut World, mapper: &mut EntityMapper| {
+    Box::new(move |world: &mut World, mapper: &mut EntityMapper| {
         entity_comps.into_iter().for_each(|(entity, comp)| {
             let new_entity = mapper.get_or_reserve(entity);
-            world.entity_mut(new_entity).insert(comp);
+            world.entity_mut(new_entity).insert((comp, marker.clone()));
         });
     })
 }
@@ -112,32 +113,43 @@ fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>>(
 //      let save_data_string = String::from_utf8(self).unwrap();
 //   4. String value of component name (corresponding to `C`)
 /// A trait which allows to deserialize entities and their components.
-pub trait DeserializeComponents<C, M>
-where
-    Self: Sized, // TODO: what do we want to use as Self, if anything?
-    M: Component,
-    C: Component + DeserializeOwned,
-{
-    fn deserialize(
-        world: &mut World,
-        entity_map: &mut HashMap<Entity, Entity>,
-        component_json_obj: &mut HashMap<String, Value>,
-        component_name: String,
-    ) -> Result<(), Box<dyn Error>> // TODO: consider removing Box after tests work
-    {
-        // to avoid memory duplication, we remove the component vec from the map,
-        // allowing the deserializer to take ownership
-        let comp_vec_value = component_json_obj
-            .remove(&component_name)
-            .unwrap_or(EMPTY_JS_ARRAY);
-        component_json_obj.shrink_to_fit();
+fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
+    world: &mut World,
+    entity_map: &mut HashMap<Entity, Entity>,
+    component_json_obj: &mut HashMap<String, Value>,
+    component_name: String,
+    marker: M,
+) -> Result<(), serde_json::Error> {
+    // to avoid memory duplication, we remove the component vec from the map,
+    // allowing the deserializer to take ownership
+    let comp_vec_value = component_json_obj
+        .remove(&component_name)
+        .unwrap_or(EMPTY_JS_ARRAY);
+    component_json_obj.shrink_to_fit();
 
-        let entity_comps: Vec<(Entity, C)> = serde_json::from_value(comp_vec_value)?;
+    let entity_comps: Vec<(Entity, C)> = serde_json::from_value(comp_vec_value)?;
 
-        Ok(EntityMapper::world_scope(entity_map, world, |world, em| {
-            revive_or_rejuv_entity(entity_comps)(world, em)
-        }))
-    }
+    Ok(EntityMapper::world_scope(entity_map, world, |world, em| {
+        revive_or_rejuv_entity(entity_comps, marker)(world, em)
+    }))
+}
+
+#[macro_export]
+macro_rules! deserialize_individually {
+  ($world:expr, $emap:expr, $json_map:expr, $marker:expr, $( $comp_type:ty),* $(,)?) => {
+      $(
+        let comp_name_fq = stringify!($comp_type);
+        let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
+      deserialize(
+          &mut $world,
+          &mut $emap,
+          &mut $json_map,
+          &mut $comp_name,
+          $marker,
+      )
+      .unwrap();
+      )*
+  };
 }
 
 #[cfg(test)]
@@ -190,6 +202,20 @@ mod tests {
         let mut serializer = serde_json::Serializer::new(writer);
         execute_with_type_list!(serialize_individually!(ecs, serializer, SerializeMe));
         serializer.into_inner()
+    }
+
+    pub fn load_game(ecs: &mut World, save_data: Vec<u8>) -> () {
+        ecs.clear_entities();
+        let entity_map = HashMap::new();
+        let component_value_map: HashMap<String, Value> =
+            serde_json::from_slice(&save_data).unwrap();
+        let marker = SerializeMe {};
+        execute_with_type_list!(deserialize_individually!(
+            ecs,
+            entity_map,
+            component_value_map,
+            marker
+        ))
     }
 
     #[test]

@@ -8,9 +8,8 @@ use bevy_utils::hashbrown::HashMap;
 use serde::de::{Deserialize, DeserializeOwned};
 use serde::ser::Serialize;
 use serde_json::Value;
-use std::error::Error;
 
-const EMPTY_JS_ARRAY: Value = serde_json::json!([]);
+const EMPTY_JS_ARRAY: Value = serde_json::json!([]); // TODO: remove?
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
 /// of the same name from the specs ECS library.
@@ -117,13 +116,13 @@ fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
     world: &mut World,
     entity_map: &mut HashMap<Entity, Entity>,
     component_json_obj: &mut HashMap<String, Value>,
-    component_name: String,
+    component_name: &str,
     marker: M,
 ) -> Result<(), serde_json::Error> {
     // to avoid memory duplication, we remove the component vec from the map,
     // allowing the deserializer to take ownership
     let comp_vec_value = component_json_obj
-        .remove(&component_name)
+        .remove(component_name)
         .unwrap_or(EMPTY_JS_ARRAY);
     component_json_obj.shrink_to_fit();
 
@@ -136,25 +135,26 @@ fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
 
 #[macro_export]
 macro_rules! deserialize_individually {
-  ($world:expr, $emap:expr, $json_map:expr, $marker:expr, $( $comp_type:ty),* $(,)?) => {
+  ($world:expr, $emap:expr, $json_map:expr, $marker:expr, $( $comp_type:ty),*, $(,)?) => {
+  {
       $(
-        let comp_name_fq = stringify!($comp_type);
-        let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
-      deserialize(
-          &mut $world,
-          &mut $emap,
-          &mut $json_map,
-          &mut $comp_name,
-          $marker,
-      )
-      .unwrap();
+          let comp_name_fq = stringify!($comp_type);
+          let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
+          deserialize::<$comp_type, _>(
+              $world,
+              $emap,
+              $json_map,
+              &comp_name,
+              $marker,
+          )
+          .unwrap();
       )*
+  }
   };
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     use super::*;
     use serde::{Deserialize, Serialize};
@@ -168,7 +168,7 @@ mod tests {
         CTest,
     }
 
-    #[derive(Component)]
+    #[derive(Clone, Component)]
     pub struct SerializeMe;
 
     #[derive(Component, Serialize, Deserialize)]
@@ -206,15 +206,15 @@ mod tests {
 
     pub fn load_game(ecs: &mut World, save_data: Vec<u8>) -> () {
         ecs.clear_entities();
-        let entity_map = HashMap::new();
-        let component_value_map: HashMap<String, Value> =
+        let mut entity_map = HashMap::new();
+        let mut component_value_map: HashMap<String, Value> =
             serde_json::from_slice(&save_data).unwrap();
         let marker = SerializeMe {};
         execute_with_type_list!(deserialize_individually!(
             ecs,
-            entity_map,
-            component_value_map,
-            marker
+            &mut entity_map,
+            &mut component_value_map,
+            marker.clone()
         ))
     }
 

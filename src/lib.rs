@@ -44,7 +44,7 @@ where
     /// # Returns
     /// A result containing either a `serde_json::Value` representing the serialized data or an error
     /// (`serde_json::Error`).
-    fn serialize(self, world: &World) -> Result<Value, serde_json::Error>;
+    fn serialize(self, world: &World) -> Result<Option<Value>, serde_json::Error>;
 }
 
 impl<C, M> SerializeComponents<C, M> for QueryState<(Entity, &C), With<M>>
@@ -52,10 +52,19 @@ where
     M: Component,
     C: Component + Serialize,
 {
-    fn serialize(mut self, world: &World) -> Result<Value, serde_json::Error> {
-        let comp_values_res: Result<Vec<Value>, serde_json::Error> =
-            self.iter(world).map(serde_json::value::to_value).collect();
-        comp_values_res.map(Value::Array)
+    fn serialize(mut self, world: &World) -> Result<Option<Value>, serde_json::Error> {
+        let comp_data: Vec<(Entity, &C)> = self.iter(world).collect();
+        // .map(serde_json::value::to_value)
+        // .collect::<Result<Vec<Value>, serde_json::Error>>()?;
+        if comp_data.is_empty() {
+            Ok(None)
+        } else {
+            let comp_values = comp_data
+                .into_iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<Value>, serde_json::Error>>()?;
+            Ok(Some(Value::Array(comp_values)))
+        }
     }
 }
 
@@ -70,7 +79,10 @@ macro_rules! serialize_individually {
             $world.query_filtered::<(Entity, &$comp_type), With<$marker>>(),
             $world,
         );
-        data_map.insert(comp_name.to_string(), comp_data_res.unwrap());
+        match comp_data_res.unwrap() {
+            Some(comp_data) => data_map.insert(comp_name.to_string(), comp_data),
+            None => None,
+        };
       )*
       data_map.serialize(&mut $ser).unwrap();
   };
@@ -188,6 +200,10 @@ mod tests {
         test_enum: TestEnum,
     }
 
+    // We dont want to have any entities for this for testing purposes
+    #[derive(Component, Serialize, Deserialize)]
+    pub struct ComponentNotUsed;
+
     // see https://users.rust-lang.org/t/how-to-store-a-list-tuple-of-types-that-can-be-uses-as-arguments-in-another-macro/87891
     // credit to Michael F. Bryan for this approach
     #[macro_export]
@@ -195,7 +211,7 @@ mod tests {
         ($name:ident!($($arg:tt)*)) => {
             $name!(
             $($arg)*,
-            tests::Component1, tests::Component2, tests::Component3,
+            tests::Component1, tests::Component2, tests::Component3, tests::ComponentNotUsed,
             )
         }
     }
@@ -241,9 +257,7 @@ mod tests {
 
         let save_data = save_game(&mut world);
         let save_json: HashMap<String, Value> = serde_json::from_slice(&save_data).unwrap();
-        let expected_json: HashMap<String, Value> =
-            serde_json::from_str(r#"{"Component3": [], "Component2": [], "Component1": []}"#)
-                .unwrap();
+        let expected_json: HashMap<String, Value> = serde_json::from_str("{}").unwrap();
         assert_eq!(save_json, expected_json);
 
         world.get_entity_mut(entity1).unwrap().insert(SerializeMe);
@@ -257,6 +271,15 @@ mod tests {
         assert_eq!(save_json, expected_json);
 
         let entity_map: HashMap<Entity, Entity> = HashMap::new();
+
+        world.clear_all();
+        let cleared_save_data = save_game(&mut world);
+        assert_eq!(
+            serde_json::from_slice::<HashMap<String, Value>>(&cleared_save_data).unwrap(),
+            serde_json::from_str::<HashMap<String, Value>>("{}").unwrap()
+        );
+        load_game(&mut world, save_data);
+
         // example: f(world, &mut mapper);
         // let entity_mapper = EntityMapper::world_scope(&mut entity_map, &mut world, f)
     }

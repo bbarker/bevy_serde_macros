@@ -4,13 +4,13 @@
 
 use bevy_ecs::entity::EntityMapper;
 use bevy_ecs::prelude::*;
-use bevy_utils::hashbrown::HashMap;
+use bevy_utils::hashbrown::{HashMap, HashSet};
 use serde::de::{Deserialize, DeserializeOwned};
 use serde::ser::Serialize;
 use serde_json::Value;
 
 const EMPTY_JS_ARRAY: Value = serde_json::json!([]); // TODO: remove?
-type EntityMapperDynFn = dyn FnOnce(&mut World, &mut EntityMapper);
+type EntityMapperDynFn = dyn FnOnce(&mut World, &mut HashMap<Entity, Entity>);
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
 /// of the same name from the specs ECS library.
@@ -88,43 +88,55 @@ macro_rules! serialize_individually {
   };
 }
 
+// Entity exists in unmapped | Entity is in entity_map | Result
+//              0            |             0           | create new entity; add to map
+//              0            |             1           | reuse entity in map
+//              1            |             0           | create new entity; add to map
+//              1            |             1           | reuse entity in entity map
+// ......... so we don't actually need to look at unmapped entities ... but we need to make
+fn get_or_insert(
+    world: &mut World,
+    entity_map: &mut HashMap<Entity, Entity>,
+    entity: Entity,
+) -> Entity {
+    match entity_map.get(&entity) {
+        Some(new_entity) => *new_entity,
+        None => {
+            let new_entity = world.spawn_empty().id();
+            entity_map.insert(entity, new_entity);
+            new_entity
+        }
+    }
+}
+
 fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>, M: Component + Clone>(
     entity_comps: Vec<(Entity, C)>,
     marker: M,
 ) -> Box<EntityMapperDynFn> {
-    Box::new(move |world: &mut World, mapper: &mut EntityMapper| {
-        entity_comps.into_iter().for_each(|(entity, comp)| {
-            let new_entity = mapper.get_or_reserve(entity);
-            world.entity_mut(new_entity).insert((comp, marker.clone()));
-        });
-    })
+    Box::new(
+        move |world: &mut World, mapper: &mut HashMap<Entity, Entity>| {
+            entity_comps.into_iter().for_each(|(entity, comp)| {
+                let new_entity = get_or_insert(world, mapper, entity);
+                world.entity_mut(new_entity).insert((comp, marker.clone()));
+            });
+        },
+    )
 }
 
-// Notes for specs migration:
-//
-// Fn passed to `worldScope` takes a `&mut World` and `&mut EntityMapper`
-// but `deserialize` also likely needs a deserializer, so I think we need to call
-// world_scope inside of deserialize as part of a closure containing the deserializer.
-// We need the hashmap to persist between calls to deserialize.
-//
-//
-// Removed params:
-//   1. allocator
-//   2. entities (EntitiesRes)
-//   3. markers
-//   4. deserializer: D,
-// Added params:
-//   1. World
-//   2. HashMap<Entity, Entity>
-//   3. HashMap<String, Value>
-// TODO: extract this data map and pass it in as a parameter to avoid
-// deserializing it multiple times; we can have a caller: `deserialize_all`;
-// likely need to just have it as a trait fn since to implement, need to use
-// execute_with_type_list!
-// TODO: deserialize outer map:
-//      let save_data_string = String::from_utf8(self).unwrap();
-//   4. String value of component name (corresponding to `C`)
-/// A trait which allows to deserialize entities and their components.
+// Entity exists in unmapped | Entity is in entity_map | Result
+//              0            |             0           | create new entity; add to map
+//              0            |             1           | reuse entity in map
+//              1            |             0           | create new entity; add to map
+//              1            |             1           | reuse entity in entity map
+// ......... so we don't actually need to look at unmapped entities ... but we need to make
+// sure we don't coline with them. however, world.spawn would take care of this for us.
+// pub fn entity_map_updater(
+//     unmapped_entities: &HashSet<Entity>,
+//     entity_map: &mut HashMap<Entity, Entity>,
+// ) -> Box<dyn Fn(&Vec<Entity>)> {
+//     Box::new(|entities: &Vec<Entity>| entities.iter().for_each(|ent| unmapped_entities))
+// }
+
 #[allow(dead_code)]
 fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
     world: &mut World,
@@ -142,10 +154,8 @@ fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
 
     let entity_comps: Vec<(Entity, C)> = serde_json::from_value(comp_vec_value)?;
 
-    #[allow(clippy::unit_arg)]
-    Ok(EntityMapper::world_scope(entity_map, world, |world, em| {
-        revive_or_rejuv_entity(entity_comps, marker)(world, em)
-    }))
+    revive_or_rejuv_entity(entity_comps, marker)(world, entity_map);
+    Ok(())
 }
 
 #[macro_export]

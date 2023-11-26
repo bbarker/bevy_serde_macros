@@ -2,14 +2,13 @@
 // Copyright 2019 Herbert Wolverson (DBA Bracket Productions)
 // (Copyright (c) 2017 The Specs Project Developers)
 
-use bevy_ecs::entity::EntityMapper;
 use bevy_ecs::prelude::*;
-use bevy_utils::hashbrown::{HashMap, HashSet};
+use bevy_utils::hashbrown::HashMap;
 use serde::de::{Deserialize, DeserializeOwned};
 use serde::ser::Serialize;
 use serde_json::Value;
 
-const EMPTY_JS_ARRAY: Value = serde_json::json!([]); // TODO: remove?
+const EMPTY_JS_ARRAY: Value = serde_json::json!([]);
 type EntityMapperDynFn = dyn FnOnce(&mut World, &mut HashMap<Entity, Entity>);
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
@@ -54,8 +53,6 @@ where
 {
     fn serialize(mut self, world: &World) -> Result<Option<Value>, serde_json::Error> {
         let comp_data: Vec<(Entity, &C)> = self.iter(world).collect();
-        // .map(serde_json::value::to_value)
-        // .collect::<Result<Vec<Value>, serde_json::Error>>()?;
         if comp_data.is_empty() {
             Ok(None)
         } else {
@@ -88,12 +85,16 @@ macro_rules! serialize_individually {
   };
 }
 
-// Entity exists in unmapped | Entity is in entity_map | Result
-//              0            |             0           | create new entity; add to map
-//              0            |             1           | reuse entity in map
-//              1            |             0           | create new entity; add to map
-//              1            |             1           | reuse entity in entity map
-// ......... so we don't actually need to look at unmapped entities ... but we need to make
+/// Some entities may exist in the World prior to deserialization, however we assume
+/// these are mutually exclusive from the entities we are restoring. As such, we
+/// don't need to worry about them, as the table below shows (unmapped entities
+/// are those that are pre-existing and exclusive from those we are restoring):
+///  
+/// Entity exists in unmapped | Entity is in entity_map | Result
+///              0            |             0           | create new entity; add to map
+///              0            |             1           | reuse entity in map
+///              1            |             0           | create new entity; add to map
+///              1            |             1           | reuse entity in entity map
 fn get_or_insert(
     world: &mut World,
     entity_map: &mut HashMap<Entity, Entity>,
@@ -122,20 +123,6 @@ fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>, M: Component + C
         },
     )
 }
-
-// Entity exists in unmapped | Entity is in entity_map | Result
-//              0            |             0           | create new entity; add to map
-//              0            |             1           | reuse entity in map
-//              1            |             0           | create new entity; add to map
-//              1            |             1           | reuse entity in entity map
-// ......... so we don't actually need to look at unmapped entities ... but we need to make
-// sure we don't coline with them. however, world.spawn would take care of this for us.
-// pub fn entity_map_updater(
-//     unmapped_entities: &HashSet<Entity>,
-//     entity_map: &mut HashMap<Entity, Entity>,
-// ) -> Box<dyn Fn(&Vec<Entity>)> {
-//     Box::new(|entities: &Vec<Entity>| entities.iter().for_each(|ent| unmapped_entities))
-// }
 
 #[allow(dead_code)]
 fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
@@ -184,8 +171,6 @@ mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
 
-    use assert_json_diff::{assert_json_matches, CompareMode, Config, NumericMode};
-
     #[derive(Serialize, Deserialize)]
     enum TestEnum {
         ATest(String),
@@ -233,7 +218,6 @@ mod tests {
         serializer.into_inner()
     }
 
-    //#[cfg_attr(not(test), allow(unused))]
     #[allow(dead_code)]
     pub fn load_game(ecs: &mut World, save_data: Vec<u8>) -> () {
         ecs.clear_entities();
@@ -251,7 +235,6 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let json_assert_config = Config::new(CompareMode::Strict);
         let mut world = World::default();
         let entity1 = world.spawn(Component1).id();
         let entity2 = world
@@ -280,17 +263,15 @@ mod tests {
         ).unwrap();
         assert_eq!(save_json, expected_json);
 
-        let entity_map: HashMap<Entity, Entity> = HashMap::new();
-
         world.clear_all();
         let cleared_save_data = save_game(&mut world);
         assert_eq!(
             serde_json::from_slice::<HashMap<String, Value>>(&cleared_save_data).unwrap(),
             serde_json::from_str::<HashMap<String, Value>>("{}").unwrap()
         );
-        load_game(&mut world, save_data);
+        load_game(&mut world, save_data.clone());
 
-        // example: f(world, &mut mapper);
-        // let entity_mapper = EntityMapper::world_scope(&mut entity_map, &mut world, f)
+        let save_data2 = save_game(&mut world);
+        assert_eq!(save_data2, save_data);
     }
 }

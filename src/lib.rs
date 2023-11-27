@@ -2,15 +2,14 @@
 // Copyright 2019 Herbert Wolverson (DBA Bracket Productions)
 // (Copyright (c) 2017 The Specs Project Developers)
 
-use bevy_ecs::entity::EntityMapper;
 use bevy_ecs::prelude::*;
 use bevy_utils::hashbrown::HashMap;
 use serde::de::{Deserialize, DeserializeOwned};
 use serde::ser::Serialize;
 use serde_json::Value;
 
-const EMPTY_JS_ARRAY: Value = serde_json::json!([]); // TODO: remove?
-type EntityMapperDynFn = dyn FnOnce(&mut World, &mut EntityMapper);
+const EMPTY_JS_ARRAY: Value = serde_json::json!([]);
+type EntityMapperDynFn = dyn FnOnce(&mut World, &mut HashMap<Entity, Entity>);
 
 /// A trait which allows to serialize entities and their components. Loosely based on the component
 /// of the same name from the specs ECS library.
@@ -54,8 +53,6 @@ where
 {
     fn serialize(mut self, world: &World) -> Result<Option<Value>, serde_json::Error> {
         let comp_data: Vec<(Entity, &C)> = self.iter(world).collect();
-        // .map(serde_json::value::to_value)
-        // .collect::<Result<Vec<Value>, serde_json::Error>>()?;
         if comp_data.is_empty() {
             Ok(None)
         } else {
@@ -88,43 +85,45 @@ macro_rules! serialize_individually {
   };
 }
 
+/// Some entities may exist in the World prior to deserialization, however we assume
+/// these are mutually exclusive from the entities we are restoring. As such, we
+/// don't need to worry about them, as the table below shows (unmapped entities
+/// are those that are pre-existing and exclusive from those we are restoring):
+///  
+/// Entity exists in unmapped | Entity is in entity_map | Result
+///              0            |             0           | create new entity; add to map
+///              0            |             1           | reuse entity in map
+///              1            |             0           | create new entity; add to map
+///              1            |             1           | reuse entity in entity map
+fn get_or_insert(
+    world: &mut World,
+    entity_map: &mut HashMap<Entity, Entity>,
+    entity: Entity,
+) -> Entity {
+    match entity_map.get(&entity) {
+        Some(new_entity) => *new_entity,
+        None => {
+            let new_entity = world.spawn_empty().id();
+            entity_map.insert(entity, new_entity);
+            new_entity
+        }
+    }
+}
+
 fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>, M: Component + Clone>(
     entity_comps: Vec<(Entity, C)>,
     marker: M,
 ) -> Box<EntityMapperDynFn> {
-    Box::new(move |world: &mut World, mapper: &mut EntityMapper| {
-        entity_comps.into_iter().for_each(|(entity, comp)| {
-            let new_entity = mapper.get_or_reserve(entity);
-            world.entity_mut(new_entity).insert((comp, marker.clone()));
-        });
-    })
+    Box::new(
+        move |world: &mut World, mapper: &mut HashMap<Entity, Entity>| {
+            entity_comps.into_iter().for_each(|(entity, comp)| {
+                let new_entity = get_or_insert(world, mapper, entity);
+                world.entity_mut(new_entity).insert((comp, marker.clone()));
+            });
+        },
+    )
 }
 
-// Notes for specs migration:
-//
-// Fn passed to `worldScope` takes a `&mut World` and `&mut EntityMapper`
-// but `deserialize` also likely needs a deserializer, so I think we need to call
-// world_scope inside of deserialize as part of a closure containing the deserializer.
-// We need the hashmap to persist between calls to deserialize.
-//
-//
-// Removed params:
-//   1. allocator
-//   2. entities (EntitiesRes)
-//   3. markers
-//   4. deserializer: D,
-// Added params:
-//   1. World
-//   2. HashMap<Entity, Entity>
-//   3. HashMap<String, Value>
-// TODO: extract this data map and pass it in as a parameter to avoid
-// deserializing it multiple times; we can have a caller: `deserialize_all`;
-// likely need to just have it as a trait fn since to implement, need to use
-// execute_with_type_list!
-// TODO: deserialize outer map:
-//      let save_data_string = String::from_utf8(self).unwrap();
-//   4. String value of component name (corresponding to `C`)
-/// A trait which allows to deserialize entities and their components.
 #[allow(dead_code)]
 fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
     world: &mut World,
@@ -142,10 +141,8 @@ fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
 
     let entity_comps: Vec<(Entity, C)> = serde_json::from_value(comp_vec_value)?;
 
-    #[allow(clippy::unit_arg)]
-    Ok(EntityMapper::world_scope(entity_map, world, |world, em| {
-        revive_or_rejuv_entity(entity_comps, marker)(world, em)
-    }))
+    revive_or_rejuv_entity(entity_comps, marker)(world, entity_map);
+    Ok(())
 }
 
 #[macro_export]
@@ -173,8 +170,6 @@ mod tests {
 
     use super::*;
     use serde::{Deserialize, Serialize};
-
-    use assert_json_diff::{assert_json_matches, CompareMode, Config, NumericMode};
 
     #[derive(Serialize, Deserialize)]
     enum TestEnum {
@@ -223,7 +218,6 @@ mod tests {
         serializer.into_inner()
     }
 
-    //#[cfg_attr(not(test), allow(unused))]
     #[allow(dead_code)]
     pub fn load_game(ecs: &mut World, save_data: Vec<u8>) -> () {
         ecs.clear_entities();
@@ -241,7 +235,6 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let json_assert_config = Config::new(CompareMode::Strict);
         let mut world = World::default();
         let entity1 = world.spawn(Component1).id();
         let entity2 = world
@@ -270,17 +263,15 @@ mod tests {
         ).unwrap();
         assert_eq!(save_json, expected_json);
 
-        let entity_map: HashMap<Entity, Entity> = HashMap::new();
-
         world.clear_all();
         let cleared_save_data = save_game(&mut world);
         assert_eq!(
             serde_json::from_slice::<HashMap<String, Value>>(&cleared_save_data).unwrap(),
             serde_json::from_str::<HashMap<String, Value>>("{}").unwrap()
         );
-        load_game(&mut world, save_data);
+        load_game(&mut world, save_data.clone());
 
-        // example: f(world, &mut mapper);
-        // let entity_mapper = EntityMapper::world_scope(&mut entity_map, &mut world, f)
+        let save_data2 = save_game(&mut world);
+        assert_eq!(save_data2, save_data);
     }
 }

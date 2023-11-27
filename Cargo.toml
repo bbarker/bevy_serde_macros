@@ -2,7 +2,13 @@
 name = "bevy_serde_macros"
 version = "0.1.0"
 edition = "2021"
-
+authors = ["Brandon Barker <brandon.barker@gmail.com>"]
+description = "Macros for easing use of serde on bevy entities and components"
+repository = "https://github.com/bbarker/bevy_serde_macros"
+homepage = "https://github.com/bbarker/bevy_serde_macros"
+license = "MPL-2.0"
+keywords = ["gamedev", "ecs", "bevy", "serde", "serialization", "macro"]
+readme = "Readme.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

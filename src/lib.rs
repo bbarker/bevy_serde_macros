@@ -68,7 +68,6 @@ where
 #[macro_export]
 macro_rules! serialize_individually {
   ($world:expr, $ser:expr, $marker:ty, $( $comp_type:ty),*, $(,)?) => {
-      use bevy_utils::hashbrown::HashMap;
       use serde_json::Value;
       let mut data_map: HashMap<String, Value> = HashMap::new();
       $(

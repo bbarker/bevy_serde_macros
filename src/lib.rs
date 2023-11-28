@@ -68,11 +68,13 @@ where
 #[macro_export]
 macro_rules! serialize_individually {
   ($world:expr, $ser:expr, $marker:ty, $( $comp_type:ty),*, $(,)?) => {
+      use bevy_utils::hashbrown::HashMap;
+      use serde_json::Value;
       let mut data_map: HashMap<String, Value> = HashMap::new();
       $(
         let comp_name_fq = stringify!($comp_type);
         let comp_name = comp_name_fq.rsplit("::").next().unwrap_or(&comp_name_fq);
-        let comp_data_res = SerializeComponents::<$comp_type, SerializeMe>::serialize(
+        let comp_data_res = SerializeComponents::<$comp_type, $marker>::serialize(
             $world.query_filtered::<(Entity, &$comp_type), With<$marker>>(),
             $world,
         );

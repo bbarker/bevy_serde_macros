@@ -1,8 +1,16 @@
 # bevy_serde_macros
 
+
+This crate lets you serialize specified components and their associated entities 
+using a "list" of components, as well as the marked entities you wish to serialize.
+The result is that the intersection of marked entities and specified components
+are serialized. 
+
 Though this currently targets bevy ECS only, other aspects of bevy may be added in the future.
 
-See the tests for usage examples.
+See the tests for usage examples (`save_game` and `load_game`). Currently, the
+list of components is specified by a macro that the user must implement
+(named `execute_with_type_list` in the examples).
 
 ## Acknowledgments
 

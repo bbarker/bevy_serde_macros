@@ -126,7 +126,7 @@ fn revive_or_rejuv_entity<'de, C: Component + Deserialize<'de>, M: Component + C
 }
 
 #[allow(dead_code)]
-fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
+pub fn deserialize<C: Component + DeserializeOwned, M: Component + Clone>(
     world: &mut World,
     entity_map: &mut HashMap<Entity, Entity>,
     component_json_obj: &mut HashMap<String, Value>,

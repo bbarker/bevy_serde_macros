@@ -1,5 +1,7 @@
 # bevy_serde_macros
 
+[![Crates.io](https://img.shields.io/crates/v/bevy_serde_macros.svg)](https://crates.io/crates/bevy_serde_macros)
+[![Docs.rs](https://docs.rs/bevy_serde_macros/badge.svg)](https://docs.rs/bevy_serde_macros)
 
 This crate lets you serialize specified components and their associated entities 
 using a "list" of components, as well as the marked entities you wish to serialize.

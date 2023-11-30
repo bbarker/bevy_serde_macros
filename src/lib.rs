@@ -225,12 +225,11 @@ mod tests {
         let mut entity_map = HashMap::new();
         let mut component_value_map: HashMap<String, Value> =
             serde_json::from_slice(&save_data).unwrap();
-        let marker = SerializeMe {};
         execute_with_type_list!(deserialize_individually!(
             ecs,
             &mut entity_map,
             &mut component_value_map,
-            marker.clone()
+            SerializeMe
         ))
     }
 

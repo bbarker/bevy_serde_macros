@@ -1,0 +1,225 @@
+cargo build
+cargo fmt
+cargo fmt
+cargo build
+cargo build
+cargo build
+cargo clippy
+cargo clippy
+cargo fmt
+git status
+less .history 
+rm .history 
+git status
+git add .
+git status
+git reset src/saveload_system.rs
+git status
+git commit -m "drafted deserialization"
+git push
+git status
+cargo build
+cargo fmt
+cargo fmt
+cargo clippy
+cargo test
+cargo test
+cargo expand
+cargo install cargo-expand
+cargo expand
+cargo expand --test
+cargo expand --test test_serialization(
+cargo expand --test test_serialization
+cargo expand --help
+cargo expand --tests
+cargo expand --lib --tests
+cargo expand --lib --tests > expand1.rs
+cargo expand --lib --tests > expand1.rs
+cargo expand --lib --tests > expand1.rs
+cargo expand --lib --tests > expand1.rs
+cargo build
+cargo test
+cargo test
+cargo test
+cargo test
+cargo expand --lib --tests > expand1.rs
+cargo expand --lib --tests > expand1.rs
+cargo test
+cargo build
+cargo clippy
+cargo clippy
+cargo clippy
+cargo clippy
+cargo clippy
+cargo test
+cd ..
+git clone https://github.com/rust-pretty-assertions/rust-pretty-assertions.git
+cd rust-pretty-assertions/
+git checkout -b term-check
+cargo test
+ls
+cd pretty_assertions_bench/
+ls
+cat README.md 
+cd ..
+ls
+cd scripts/
+ls
+cd ..
+rg "mod test"
+less pretty_assertions/src/printer.rs 
+cargo test
+less ../bevy_serde_macros/src/lib.rs 
+$env.TERM
+echo $TERM
+export TERM=dumb
+cargo test
+export TERM=alacritty
+cd -
+cd ~/workspace/bevy_serde_macros/
+cargo fmt
+cargo test
+git diff
+cargo test
+cargo test
+git diff
+git status
+git add .
+git status
+git commit -m "some issues with using world_scope"
+git push
+cargo test
+cargo test
+cargo test
+cargo test
+cargo test
+RUST_BACKTRACE=1 cargo test
+cargo test
+git stash
+git fetch
+ssh-add
+git fetch
+git checkout main
+git pull
+git branch
+git branch -D serialize_as_hashmap 
+git checkout -b fix_deserialization
+cargo test
+cargo test
+git status
+git add src/lib.rs 
+git status
+git commit -m "seem to have fixed deserialization - removed world_scope usage and used custom get_or_insert"
+git branch
+git push -u origin fix_deserialization
+cargo test
+cargo test
+cargo build
+cargo test
+cargo test
+cargo clippy
+git status
+git add .
+git status
+cargo clippy
+git statis
+git status
+git add .
+git status
+git commit -m "cleaning up comments and deps"
+git push
+git branch
+cargo login
+git status
+git add .
+git status
+git commit -m "add metadata"
+git branch
+git checkout main && git pull
+git status
+git checkout fix_deserialization 
+git branch
+git log
+git checkout main
+git cherry-pick 280635144caca27bde380d4d4daa78fd95ba18c3
+git push
+cargo publish --dry-run
+cargo publish 
+git add .
+git status
+git commit -m "reduce keywords for crates.io"
+git push
+cargo publish
+git rm src/saveload_system.rs 
+git status
+git commit -m "remove unused source file"
+git push
+cargo test
+cargo test
+cargo clippy
+cargo test
+git add .
+git status
+git commit -m "add imports to serialize macro; add docs to readme; bump version"
+git branch
+git push
+cargo publish
+git diff
+cargo test
+cargo clippy
+git add .
+git status
+git commit -m "require HashMap to be specified at use site, due to bevy supporting multiple namespaces for imports; bump version"
+git push
+cargo publish
+cargo clippy
+cargo clippy
+git add .
+git status
+git reset
+git diff
+git add .
+git add .
+git status
+git commit -m "make deserialize public"
+git push
+cargo publish
+cp ../RustyRogue/shell.nix ./
+git status
+git diff
+git checkt -- shell.nix
+git checkout -- shell.nix
+cd ../bevy_game_template/
+ls
+cp ../RustyRogue/shell.nix ./
+cargo run
+rust-analyzer --help
+exit
+cargo build
+exit
+hx src/lib.rs 
+hx src/lib.rs 
+cargo build
+hx src/lib.rs 
+cargo build
+hx src/lib.rs 
+ls
+cd ~/.config/helix/
+sftp 192.168.1.150
+cd -
+hx src/lib.rs 
+hx ~/.config/helix/languages.toml 
+hx src/lib.rs 
+cd -
+sftp 192.168.1.150
+cd -
+hx src/lib.rs 
+RUST_BACKTRACE=1 hx src/lib.rs 
+RUST_BACKTRACE=1 hx src/lib.rs 
+RUST_BACKTRACE=1 hx src/lib.rs 
+cd ../rust-pretty-assertions/
+ls
+hx pretty_assertions/src/lib.rs 
+cd -
+hx src/lib.rs 
+exit

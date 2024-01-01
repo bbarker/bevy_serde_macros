@@ -15,4 +15,4 @@ readme = "Readme.md"
 bevy_ecs = "0.12.0"
 bevy_utils = "0.12.0"
 serde = { version = "1.0.148", features = ["derive"] }
-serde_json = "1.0.91"
+serde_json = "1.0.109"

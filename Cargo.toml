@@ -12,7 +12,7 @@ readme = "Readme.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bevy_ecs = "0.12.0"
+bevy_ecs = "0.13.0"
 bevy_utils = "0.12.0"
 serde = { version = "1.0.148", features = ["derive"] }
 serde_json = "1.0.91"
